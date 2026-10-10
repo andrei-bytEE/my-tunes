@@ -32,9 +32,39 @@ jobs:
       - name: Create the Android project
         run: npx cap add android
 
-      - name: Generate app icons
-        continue-on-error: true
-        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0A0D12' --iconBackgroundColorDark '#0A0D12'
+      - name: Set the app version
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      - name: Make the app icons
+        run: |
+          pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          import os, sys
+          for f in ('icon-only.png', 'icon-foreground.png'):
+              if not os.path.exists('assets/' + f):
+                  sys.exit('Missing assets/' + f + ' - upload the icon PNGs into my-tunes-app/assets')
+          res = 'android/app/src/main/res'
+          sizes = {'mdpi': (48, 108), 'hdpi': (72, 162), 'xhdpi': (96, 216), 'xxhdpi': (144, 324), 'xxxhdpi': (192, 432)}
+          only = Image.open('assets/icon-only.png').convert('RGBA')
+          fg = Image.open('assets/icon-foreground.png').convert('RGBA')
+          for name, (legacy, adaptive) in sizes.items():
+              folder = res + '/mipmap-' + name
+              os.makedirs(folder, exist_ok=True)
+              small = only.resize((legacy, legacy), Image.LANCZOS)
+              small.save(folder + '/ic_launcher.png')
+              small.save(folder + '/ic_launcher_round.png')
+              fg.resize((adaptive, adaptive), Image.LANCZOS).save(folder + '/tunes_fg.png')
+          os.makedirs(res + '/mipmap-anydpi-v26', exist_ok=True)
+          os.makedirs(res + '/values', exist_ok=True)
+          xml = '<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n    <background android:drawable="@color/tunes_icon_bg"/>\n    <foreground android:drawable="@mipmap/tunes_fg"/>\n</adaptive-icon>\n'
+          for n in ('ic_launcher.xml', 'ic_launcher_round.xml'):
+              open(res + '/mipmap-anydpi-v26/' + n, 'w').write(xml)
+          open(res + '/values/tunes_colors.xml', 'w').write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="tunes_icon_bg">#0A0D12</color>\n</resources>\n')
+          print('Icons written')
+          PY
 
       - name: Stamp the build number
         run: |
@@ -61,20 +91,20 @@ jobs:
         run: ./gradlew assembleDebug
 
       - name: Name the APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk My-Tunes.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk My-Tunes-v${{ github.run_number }}.apk
 
       - name: Show signing fingerprint
         continue-on-error: true
         run: |
           APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/apksigner | tail -1)
-          $APKSIGNER verify --print-certs My-Tunes.apk | grep "SHA-256"
+          $APKSIGNER verify --print-certs My-Tunes-v${{ github.run_number }}.apk | grep "SHA-256"
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ github.run_number }}" My-Tunes.apk --title "My Tunes v${{ github.run_number }}" --notes "Build ${{ github.run_number }}"
+        run: gh release create "v${{ github.run_number }}" My-Tunes-v${{ github.run_number }}.apk --title "My Tunes v${{ github.run_number }}" --notes "Build ${{ github.run_number }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: My-Tunes-APK
-          path: my-tunes-app/My-Tunes.apk
+          path: my-tunes-app/My-Tunes-v${{ github.run_number }}.apk
