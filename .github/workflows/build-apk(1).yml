@@ -102,6 +102,7 @@ jobs:
           $APKSIGNER verify --print-certs My-Tunes-v${{ github.run_number }}.apk | grep "SHA-256"
 
       - name: Publish release
+        if: github.run_attempt == 1
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "v${{ github.run_number }}" My-Tunes-v${{ github.run_number }}.apk My-Tunes.apk --title "My Tunes v${{ github.run_number }}" --notes "Build ${{ github.run_number }}"
