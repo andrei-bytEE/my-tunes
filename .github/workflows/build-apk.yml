@@ -37,7 +37,10 @@ jobs:
         run: npx @capacitor/assets generate --android --iconBackgroundColor '#0A0D12' --iconBackgroundColorDark '#0A0D12'
 
       - name: Stamp the build number
-        run: sed -i "s/__BUILD__/${{ github.run_number }}/" www/index.html
+        run: |
+          sed -i "s/__BUILD__/${{ github.run_number }}/" www/index.html
+          grep -n "const APP_BUILD" www/index.html
+          if grep -q "parseInt('__BUILD__'" www/index.html; then echo "Build number was NOT stamped"; exit 1; fi
 
       - name: Copy web files into the app
         run: npx cap sync android
@@ -46,10 +49,12 @@ jobs:
         env:
           KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
-          if [ -n "$KS" ]; then
-            mkdir -p ~/.android
-            echo "$KS" | base64 -d > ~/.android/debug.keystore
+          if [ -z "$KS" ]; then
+            echo "The secret DEBUG_KEYSTORE_B64 is missing or empty. Add it under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
           fi
+          mkdir -p ~/.android
+          echo "$KS" | base64 -d > ~/.android/debug.keystore
 
       - name: Build the APK
         working-directory: my-tunes-app/android
@@ -57,6 +62,12 @@ jobs:
 
       - name: Name the APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk My-Tunes.apk
+
+      - name: Show signing fingerprint
+        continue-on-error: true
+        run: |
+          APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          $APKSIGNER verify --print-certs My-Tunes.apk | grep "SHA-256"
 
       - name: Publish release
         env:
