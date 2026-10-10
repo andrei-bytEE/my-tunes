@@ -1,0 +1,8 @@
+{
+  "appId": "com.mytunes.player",
+  "appName": "My Tunes",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0A0D12"
+  }
+}
