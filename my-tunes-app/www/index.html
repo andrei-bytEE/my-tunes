@@ -211,6 +211,8 @@
     #play{width:48px;height:48px}
     #toast{bottom:170px}
   }
+  .note{margin:0 28px 10px;color:var(--mute);font-size:13px}
+  @media (max-width:820px){.note{margin:0 16px 10px}}
 </style>
 </head>
 <body>
@@ -233,7 +235,7 @@
       <button class="iconbtn" id="shuffle2" data-ic="shuffle" aria-label="Shuffle"></button>
       <button class="iconbtn" id="plMore" data-ic="more" data-menu aria-label="Playlist options" hidden></button>
       <span class="spacer"></span>
-      <label class="search"><span data-ic="search" data-s="16"></span><input id="search" type="search" placeholder="Search" aria-label="Search songs"></label>
+      <label class="search"><span data-ic="search" data-s="16"></span><input id="search" type="search" placeholder="Search your songs" aria-label="Search songs"></label>
       <select id="sort" aria-label="Sort songs">
         <option value="added">Recently added</option>
         <option value="title">Title</option>
@@ -277,6 +279,8 @@
   <div class="field"><label for="radius">Roundness</label><input type="range" id="radius" min="0" max="24" step="1"></div>
   <div class="field"><label for="density">Row size</label><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
   <div class="field"><label for="font">Font</label><select id="font"><option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select></div>
+  <h4>App</h4>
+  <div class="field"><span id="verText">Version</span><button class="linkbtn" id="updateBtn">Check for updates</button></div>
   <div class="field" id="installRow" hidden><span>Install on this device</span><button class="linkbtn" id="installBtn">Install app</button></div>
   <button class="done" id="closeSettings">Done</button>
   <div style="clear:both"></div>
@@ -372,6 +376,7 @@ function syncSettingsUI() {
   $('radius').value = settings.radius;
   $('density').value = settings.density;
   $('font').value = settings.font;
+  $('verText').textContent = 'Version ' + (APP_BUILD || 'test build');
 }
 
 // ================= state & helpers =================
@@ -587,7 +592,7 @@ function songMenu(id) {
   playlists.forEach(p => items.push({label: 'Add to “' + p.name + '”', fn: () => addToPlaylist(p, id)}));
   items.push({sep: true});
   const cur = plById(view);
-  if (cur) items.push({label: 'Remove from this playlist', fn: async () => { cur.songIds = cur.songIds.filter(x => x !== id); await savePl(cur); render(); }});
+  if (cur && cur.songIds.includes(id)) items.push({label: 'Remove from this playlist', fn: async () => { cur.songIds = cur.songIds.filter(x => x !== id); await savePl(cur); render(); }});
   items.push({label: 'Delete from library', danger: true, fn: () => deleteSong(id)});
   return items;
 }
@@ -603,15 +608,17 @@ $('plMore').addEventListener('click', e => {
 });
 
 // ================= drawing the screen =================
+const norm = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const searchTerms = () => norm($('search').value).split(/\s+/).filter(Boolean);
 function visible() {
+  const terms = searchTerms();
   let list;
-  if (view === 'library') {
+  if (view === 'library' || terms.length) {   // searching inside a playlist looks through the whole library
     const k = settings.sort;
     list = [...songs].sort((a, b) => k === 'title' ? a.title.localeCompare(b.title)
       : k === 'artist' ? (a.artist + a.title).localeCompare(b.artist + b.title) : b.added - a.added);
   } else list = plById(view)?.songIds.map(songById).filter(Boolean) || [];
-  const q = $('search').value.trim().toLowerCase();
-  return q ? list.filter(s => (s.title + ' ' + s.artist).toLowerCase().includes(q)) : list;
+  return terms.length ? list.filter(s => { const h = norm(s.title + ' ' + s.artist); return terms.every(t => h.includes(t)); }) : list;
 }
 function totalText(list) {
   const sec = list.reduce((n, s) => n + (s.duration || 0), 0);
@@ -663,6 +670,7 @@ function render() {
         <button class="iconbtn rowmenu" data-menu aria-label="Song options">${ic('more')}</button>
       </div>`).join('')}</div>`;
   }
+  if (list.length && pl && searchTerms().length) $('content').insertAdjacentHTML('afterbegin', '<div class="note">Showing matches from your whole library</div>');
   syncButtons();
 }
 
@@ -707,6 +715,33 @@ $('folder').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 window.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
 window.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('drag'); });
 window.addEventListener('drop', e => { e.preventDefault(); document.body.classList.remove('drag'); addFiles(e.dataTransfer.files); });
+
+// ================= updates =================
+// The build number is stamped in by the GitHub build ("__BUILD__" becomes the real number).
+const APP_BUILD = parseInt('__BUILD__', 10) || 0;
+const REPO = 'andrei-bytEE/my-tunes';
+const APK_URL = `https://github.com/${REPO}/releases/latest/download/My-Tunes.apk`;
+function openExternal(url) {
+  const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser;
+  if (B && B.open) B.open({url}); else window.open(url, '_blank');
+}
+async function checkUpdate() {
+  const btn = $('updateBtn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {headers: {Accept: 'application/vnd.github+json'}, cache: 'no-store'});
+    if (!r.ok) throw new Error('status ' + r.status);
+    const rel = await r.json();
+    const latest = parseInt(String(rel.tag_name).replace(/\D/g, ''), 10) || 0;
+    if (latest > APP_BUILD) {
+      if (confirm(`Version ${latest} is available (you have ${APP_BUILD || 'a test build'}).\n\nDownload it now? When it finishes, open the downloaded file to install. Your songs and playlists are kept.`)) openExternal(APK_URL);
+    } else toast("You're on the latest version");
+  } catch (e) {
+    toast("Couldn't check for updates. Are you online?");
+  }
+  btn.disabled = false; btn.textContent = 'Check for updates';
+}
+$('updateBtn').onclick = checkUpdate;
 
 // ================= installable app (PWA) =================
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
