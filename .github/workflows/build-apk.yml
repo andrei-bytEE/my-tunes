@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: my-tunes
+        working-directory: my-tunes-app
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +37,7 @@ jobs:
         run: npx cap sync android
 
       - name: Build the APK
-        working-directory: my-tunes/android
+        working-directory: my-tunes-app/android
         run: ./gradlew assembleDebug
 
       - name: Name the APK
@@ -46,4 +46,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: My-Tunes-APK
-          path: my-tunes/My-Tunes.apk
+          path: my-tunes-app/My-Tunes.apk
