@@ -26,6 +26,15 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Pick the next version number
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST=$(gh release list --repo ${{ github.repository }} --limit 200 --json tagName --jq '[.[].tagName | ltrimstr("v") | tonumber?] | max // 0')
+          echo "Latest release so far: $LAST"
+          echo "n=$((LAST + 1))" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: npm install
 
@@ -34,7 +43,7 @@ jobs:
 
       - name: Set the app version
         run: |
-          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"${{ github.run_number }}\"/" android/app/build.gradle
+          sed -i "s/versionCode 1/versionCode ${{ steps.ver.outputs.n }}/; s/versionName \"1.0\"/versionName \"${{ steps.ver.outputs.n }}\"/" android/app/build.gradle
           grep -n "versionCode\|versionName" android/app/build.gradle
 
       - name: Make the app icons
@@ -68,7 +77,7 @@ jobs:
 
       - name: Stamp the build number
         run: |
-          sed -i "s/__BUILD__/${{ github.run_number }}/" www/index.html
+          sed -i "s/__BUILD__/${{ steps.ver.outputs.n }}/" www/index.html
           grep -n "const APP_BUILD" www/index.html
           if grep -q "parseInt('__BUILD__'" www/index.html; then echo "Build number was NOT stamped"; exit 1; fi
 
@@ -92,22 +101,21 @@ jobs:
 
       - name: Name the APK
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk My-Tunes-v${{ github.run_number }}.apk
-          cp My-Tunes-v${{ github.run_number }}.apk My-Tunes.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk My-Tunes-v${{ steps.ver.outputs.n }}.apk
+          cp My-Tunes-v${{ steps.ver.outputs.n }}.apk My-Tunes.apk
 
       - name: Show signing fingerprint
         continue-on-error: true
         run: |
           APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/apksigner | tail -1)
-          $APKSIGNER verify --print-certs My-Tunes-v${{ github.run_number }}.apk | grep "SHA-256"
+          $APKSIGNER verify --print-certs My-Tunes-v${{ steps.ver.outputs.n }}.apk | grep "SHA-256"
 
       - name: Publish release
-        if: github.run_attempt == 1
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ github.run_number }}" My-Tunes-v${{ github.run_number }}.apk My-Tunes.apk --title "My Tunes v${{ github.run_number }}" --notes "Build ${{ github.run_number }}"
+        run: gh release create "v${{ steps.ver.outputs.n }}" My-Tunes-v${{ steps.ver.outputs.n }}.apk My-Tunes.apk --title "My Tunes v${{ steps.ver.outputs.n }}" --notes "Build ${{ steps.ver.outputs.n }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: My-Tunes-APK
-          path: my-tunes-app/My-Tunes-v${{ github.run_number }}.apk
+          path: my-tunes-app/My-Tunes-v${{ steps.ver.outputs.n }}.apk
